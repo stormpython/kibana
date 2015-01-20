@@ -15,8 +15,8 @@ define(function (require) {
      */
     function YAxis(args) {
       this.el = args.el;
-      this.yMin = args.yMin;
-      this.yMax = args.yMax;
+      this.yMin = args.yMin || 0;
+      this.yMax = args.yMax || 0;
       this._attr = _.defaults(args._attr || {}, {});
     }
 
