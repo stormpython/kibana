@@ -136,6 +136,9 @@ define(function (require) {
       var data = this.chartData;
       var xScale = this.handler.xAxis.xScale;
       var yScale = this.handler.yAxis.yScale;
+      var height = yScale.range()[0];
+      var yMin = this.handler.yAxis.yScale.domain()[0];
+      var self = this;
 
       // update
       bars
@@ -155,9 +158,23 @@ define(function (require) {
         return xScale.rangeBand();
       })
       .attr('y', function (d) {
+        if (d.y < 0 && !self._attr.defaultYMin) {
+          return yScale(d.y0);
+        }
+
         return yScale(d.y0 + d.y);
       })
       .attr('height', function (d) {
+        if (d.y < 0 && !self._attr.defaultYMin) {
+          return Math.abs(yScale(d.y0 + d.y) - yScale(d.y0));
+        }
+
+        // for split bars or for one series,
+        // last series will have d.y0 = 0
+        if (d.y0 === 0 && yMin > 0) {
+          return yScale(yMin) - yScale(d.y);
+        }
+
         return yScale(d.y0) - yScale(d.y0 + d.y);
       });
 
@@ -174,12 +191,14 @@ define(function (require) {
     ColumnChart.prototype.addGroupedBars = function (bars) {
       var xScale = this.handler.xAxis.xScale;
       var yScale = this.handler.yAxis.yScale;
+      var yMin = this.handler.yAxis.yMin;
       var data = this.chartData;
       var n = data.series.length;
       var height = yScale.range()[0];
       var groupSpacingPercentage = 0.15;
       var isTimeScale = (data.ordered && data.ordered.date);
       var minWidth = 1;
+      var self = this;
       var barWidth;
 
       // update
@@ -207,9 +226,22 @@ define(function (require) {
         return xScale.rangeBand() / n;
       })
       .attr('y', function (d) {
+        if (d.y < 0 && !self._attr.defaultYMin) {
+          return yScale(0);
+        }
+
         return yScale(d.y);
       })
       .attr('height', function (d) {
+        if (d.y < 0 && !self._attr.defaultYMin) {
+          return Math.abs(yScale(0) - yScale(d.y));
+        }
+
+        // if there is a negative yMin value, use yScale(0) instead of height
+        if (yMin < 0) {
+          return yScale(0) - yScale(d.y);
+        }
+
         return height - yScale(d.y);
       });
 
@@ -253,6 +285,8 @@ define(function (require) {
       var margin = this._attr.margin;
       var elWidth = this._attr.width = $elem.width();
       var elHeight = this._attr.height = $elem.height();
+      var yMin = this.handler.yAxis.yMin;
+      var yScale = this.handler.yAxis.yScale;
       var minWidth = 20;
       var minHeight = 20;
       var div;
@@ -293,6 +327,18 @@ define(function (require) {
           .attr('y2', height)
           .style('stroke', '#ddd')
           .style('stroke-width', 1);
+
+          if (yMin < 0) {
+
+            // Draw line at yScale 0 value
+            svg.append('line')
+            .attr('x1', 0)
+            .attr('y1', yScale(0))
+            .attr('x2', width)
+            .attr('y2', yScale(0))
+            .style('stroke', '#ddd')
+            .style('stroke-width', 1);
+          }
 
           return svg;
         });
