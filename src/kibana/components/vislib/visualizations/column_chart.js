@@ -4,8 +4,6 @@ define(function (require) {
     var $ = require('jquery');
     var moment = require('moment');
 
-    var DataClass = Private(require('components/vislib/lib/data'));
-
     var PointSeriesChart = Private(require('components/vislib/visualizations/_point_series_chart'));
     var TimeMarker = Private(require('components/vislib/visualizations/time_marker'));
     var errors = require('errors');

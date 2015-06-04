@@ -22,24 +22,12 @@ define(function (require) {
         return new Data(data, attr);
       }
 
-      var self = this;
-      var offset;
-
-      if (attr.mode === 'stacked') {
-        offset = 'zero';
-      } else if (attr.mode === 'percentage') {
-        offset = 'expand';
-      } else if (attr.mode === 'grouped') {
-        offset = 'group';
-      } else {
-        offset = attr.mode;
-      }
-
       this.data = data;
+      this._setAttributes(attr);
+      this._normalizeOrderedData();
       this.type = this.getDataType();
 
-      this.labels;
-
+      this.labels = [];
       if (this.type === 'series') {
         if (getLabels(data).length === 1 && getLabels(data)[0] === '') {
           this.labels = [(this.get('yAxisLabel'))];
@@ -51,27 +39,41 @@ define(function (require) {
       }
 
       this.color = this.labels ? color(this.labels) : undefined;
+    }
 
-      this._normalizeOrdered();
+    Data.prototype._setAttributes = function (attr) {
+      var self = this;
 
-      this._attr = _.defaults(attr || {}, {
-        stack: d3.layout.stack()
-          .x(function (d) { return d.x; })
-          .y(function (d) {
-            if (offset === 'expand') {
-              return Math.abs(d.y);
-            }
-            return d.y;
-          })
-          .offset(offset || 'zero')
+      var offsets = {
+        stacked: 'zero',
+        percentage: 'expand',
+        grouped: 'group'
+      };
+
+      var offset = offsets[attr.mode] || attr.mode;
+
+      var layoutStack = d3.layout.stack()
+      .offset(offset)
+      .x(function (d) {
+        return d.x;
+      })
+      .y(function (d) {
+        if (offset === 'expand') {
+          return Math.abs(d.y);
+        }
+        return d.y;
       });
 
-      if (attr.mode === 'stacked' && attr.type === 'histogram') {
-        this._attr.stack.out(function (d, y0, y) {
+      self._attr = _.defaults(attr || {}, {
+        stack: layoutStack
+      });
+
+      if (self.shouldBeStacked()) {
+        self._attr.stack.out(function (d, y0, y) {
           return self._stackNegAndPosVals(d, y0, y);
         });
       }
-    }
+    };
 
     /**
      * Returns true for positive numbers
@@ -88,19 +90,16 @@ define(function (require) {
     };
 
     /**
-     * Adds two input values
-     */
-    Data.prototype._addVals = function (a, b) {
-      return a + b;
-    };
-
-    /**
      * Returns the results of the addition of numbers in a filtered array.
      */
     Data.prototype._sumYs = function (arr, callback) {
       var filteredArray = arr.filter(callback);
 
-      return (filteredArray.length) ? filteredArray.reduce(this._addVals) : 0;
+      if (!filteredArray.length) return 0;
+
+      return filteredArray.reduce(function (sum, num) {
+        return sum + num;
+      }, 0);
     };
 
     /**
@@ -154,43 +153,45 @@ define(function (require) {
      */
     Data.prototype._stackNegAndPosVals = function (d, y0, y) {
       var data = this.chartData();
+      var cache = this._cache;
 
       // Storing counters and data characteristics needed to stack values properly
-      if (!this._cache) {
-        this._cache = this._createCache();
+      if (!cache) {
+        cache = this._cache = this._createCache();
       }
 
-      d.y0 = this._calcYZero(y, this._cache.yValsArr);
-      ++this._cache.index.stack;
+      d.y0 = this._calcYZero(y, cache.yValsArr);
+      ++cache.index.stack;
 
 
       // last stack, or last value, reset the stack count and y value array
-      var lastStack = (this._cache.index.stack >= this._cache.count.stacks);
+      var lastStack = (cache.index.stack >= cache.count.stacks);
       if (lastStack) {
-        this._cache.index.stack = 0;
-        ++this._cache.index.value;
-        this._cache.yValsArr = [];
+        cache.index.stack = 0;
+        ++cache.index.value;
+        cache.yValsArr = [];
       // still building the stack collection, push v value to array
       } else if (y !== 0) {
-        this._cache.yValsArr.push(y);
+        cache.yValsArr.push(y);
       }
 
       // last value, prepare for the next chart, if one exists
-      var lastValue = (this._cache.index.value >= this._cache.count.values);
+      var lastValue = (cache.index.value >= cache.count.values);
       if (lastValue) {
-        this._cache.index.value = 0;
-        ++this._cache.index.chart;
+        cache.index.value = 0;
+        ++cache.index.chart;
 
         // no more charts, reset the queue and finish
-        if (this._cache.index.chart >= this._cache.count.charts) {
+        if (cache.index.chart >= cache.count.charts) {
           this._cache = this._createCache();
           return;
         }
 
         // get stack and value count for next chart
-        this._cache.count.stacks = data[this._cache.index.chart].series.length; // number of stack layers
-        this._cache.count.values = this._cache.count.stacks ?
-          data[this._cache.index.chart].series[this._cache.index.stack].values.length : 0; // number of values
+        var chartData = data[cache.index.chart];
+        cache.count.stacks = chartData.series.length;
+        // cache.count.values = data[cache.index.chart].series[cache.index.stack].values.length;
+        cache.count.values = cache.count.stacks ? chartData.series[cache.index.stack].values.length : 0;
       }
     };
 
@@ -300,11 +301,11 @@ define(function (require) {
      */
     Data.prototype.shouldBeStacked = function () {
       var isHistogram = (this._attr.type === 'histogram');
+      var stacked = (this._attr.mode === 'stacked');
       var isArea = (this._attr.type === 'area');
       var isOverlapping = (this._attr.mode === 'overlap');
-      var grouped = (this._attr.mode === 'grouped');
 
-      var stackedHisto = isHistogram && !grouped;
+      var stackedHisto = isHistogram && stacked;
       var stackedArea = isArea && !isOverlapping;
 
       return stackedHisto || stackedArea;
@@ -614,7 +615,7 @@ define(function (require) {
      *
      * @return {undefined}
      */
-    Data.prototype._normalizeOrdered = function () {
+    Data.prototype._normalizeOrderedData = function () {
       if (!this.data.ordered || !this.data.ordered.date) return;
 
       var missingMin = this.data.ordered.min == null;
